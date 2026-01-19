@@ -108,7 +108,7 @@ class FaceidNode : public DnnNode {
   // 使用shared mem通信方式订阅图片
   int is_shared_mem_sub_ = 1;
 
-  int dump_render_img_ = 1;
+  int dump_render_img_ = 0;
   int render_count_ = 0;
 
   std::string ai_msg_pub_topic_name_ = "/perception/detection/faceid";
