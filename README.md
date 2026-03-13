@@ -11,6 +11,14 @@ The faceid package is a multi-model face recognition solution based on D-Robotic
 
 The image data comes from local image feedback and subscribed image messages. The faceid relies on the input of detected face boxes, extracts features, compares with the dataset, and finally gets the face ID.
 
+## Demo
+
+### FaceID Model (128-dim features)
+![FaceID Demo](./docs/faceid.gif)
+
+### InsightFace Model (512-dim features)
+![InsightFace Demo](./docs/insightface.gif)
+
 ## Architecture Highlights
 
 - **Polymorphic Model Adapter**: Unified interface supporting different model types (int32, float, and future models)

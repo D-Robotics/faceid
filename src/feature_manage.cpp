@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <ctime>
 
 #include "rclcpp/rclcpp.hpp"
 
@@ -272,6 +273,10 @@ int32_t FeatureManage::Parse(
 
   // Use ModelAdapter to extract features
   auto features = model_adapter_->ExtractFeatures(output_tensors, rois->size());
+  
+  // Timing for matching phase
+  struct timespec match_start, match_end;
+  clock_gettime(CLOCK_REALTIME, &match_start);
 
   for (size_t roi_idx = 0; roi_idx < features.size(); roi_idx++) {
     int ret = UpdateReid(features[roi_idx], roi_idx, result);
@@ -280,6 +285,14 @@ int32_t FeatureManage::Parse(
       Render(pyramid, rois->at(roi_idx), file_name);
     }
   }
+  
+  // Calculate matching time
+  clock_gettime(CLOCK_REALTIME, &match_end);
+  last_match_time_ms_ = (match_end.tv_sec - match_start.tv_sec) * 1000.0f + 
+                        (match_end.tv_nsec - match_start.tv_nsec) / 1000000.0f;
+  
+  RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+      "Matching time: %.3f ms for %zu faces", last_match_time_ms_, features.size());
   
   // Print stats every 100 frames
   static int frame_count = 0;

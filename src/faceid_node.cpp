@@ -386,7 +386,7 @@ int FaceidNode::PostProcess(
                         faceid_output->perf_preprocess.stamp_end));
   ai_msg->perfs.push_back(faceid_output->perf_preprocess);
 
-  // predict
+  // predict - inference time
   if (faceid_output->rt_stat) {
     ai_msgs::msg::Perf perf;
     perf.set__type(model_name_ + "_predict_infer");
@@ -405,6 +405,23 @@ int FaceidNode::PostProcess(
     perf.set__time_ms_duration(faceid_output->rt_stat->parse_time_ms);
     ai_msg->perfs.push_back(perf);
   }
+
+  // Matching time
+  ai_msgs::msg::Perf perf_match;
+  perf_match.set__type(model_name_ + "_match");
+  struct timespec match_time_now = {0, 0};
+  clock_gettime(CLOCK_REALTIME, &match_time_now);
+  perf_match.set__stamp_start(ConvertToRosTime(match_time_now));
+  perf_match.set__stamp_end(ConvertToRosTime(match_time_now));
+  float match_time_ms = feature_manage_->GetLastMatchTimeMs();
+  perf_match.set__time_ms_duration(static_cast<int>(match_time_ms));
+  ai_msg->perfs.push_back(perf_match);
+  
+  RCLCPP_INFO(this->get_logger(), "Timing: preprocess=%d ms, infer=%d ms, parse=%d ms, match=%.3f ms",
+      CalTimeMsDuration(faceid_output->perf_preprocess.stamp_start, faceid_output->perf_preprocess.stamp_end),
+      faceid_output->rt_stat ? faceid_output->rt_stat->infer_time_ms : 0,
+      faceid_output->rt_stat ? faceid_output->rt_stat->parse_time_ms : 0,
+      match_time_ms);
 
   ai_msgs::msg::Perf perf_postprocess;
   perf_postprocess.set__type(model_name_ + "_postprocess");
