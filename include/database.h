@@ -50,13 +50,22 @@ public:
   Item queryItem(int id);
 
   // 获取剪贴板项的总数量
-  int getItemCount();
+  int getItemCount() const;
 
   // 分页查询剪贴板项，返回当前页的Item对象列表
   std::vector<Item> queryItemsByPage(int page_number, int page_size);
 
   // 检查指定URL是否存在，返回布尔值
   bool urlExists(const std::string& url);
+
+  // NEW: Query all features (primary + auxiliary) for a given ID
+  std::vector<std::vector<float>> queryAllFeatures(int id);
+
+  // NEW: Get the count of features for a given ID
+  int getFeatureCount(int id);
+
+  // NEW: Add auxiliary feature to existing ID
+  bool addAuxiliaryFeature(int id, const std::vector<float>& feature);
 
 private:
   void openDatabase(const std::string& db_name);

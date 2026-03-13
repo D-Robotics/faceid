@@ -26,45 +26,51 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     web_smart_topic_arg = DeclareLaunchArgument(
-        'smart_topic',
-        default_value='/perception/detection/faceid',
-        description='websocket smart topic')
+        "smart_topic",
+        default_value="/perception/detection/faceid",
+        description="websocket smart topic",
+    )
 
     threshold_topic_arg = DeclareLaunchArgument(
-        'faceid_threshold',
-        default_value="0.70",
-        description='websocket smart topic')
+        "faceid_threshold", default_value="0.70", description="websocket smart topic"
+    )
 
     mono2d_body_det_node = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
-                get_package_share_directory('mono2d_body_detection'),
-                'launch/mono2d_body_detection.launch.py')),
+                get_package_share_directory("mono2d_body_detection"),
+                "launch/mono2d_body_detection.launch.py",
+            )
+        ),
         launch_arguments={
-            'smart_topic': LaunchConfiguration('smart_topic'),
-            'kps_track_mode': '0',
-            'mono2d_body_pub_topic': '/hobot_mono2d_body_detection'
-        }.items()
+            "smart_topic": LaunchConfiguration("smart_topic"),
+            "kps_track_mode": "0",
+            "mono2d_body_pub_topic": "/hobot_mono2d_body_detection",
+        }.items(),
     )
 
     faceid_det_node = Node(
-        package='faceid',
-        executable='faceid',
-        output='screen',
+        package="faceid",
+        executable="faceid",
+        output="screen",
         parameters=[
             {"is_sync_mode": 1},
             {"feed_type": 1},
+            {"model_type": "faceid"},
             {"model_file_name": "config/faceID.hbm"},
-            {"threshold": LaunchConfiguration('faceid_threshold')},
-            {"ai_msg_pub_topic_name": LaunchConfiguration('smart_topic')},
-            {"ai_msg_sub_topic_name": "/hobot_mono2d_body_detection"}
+            {"feature_dim": 128},
+            {"threshold": LaunchConfiguration("faceid_threshold")},
+            {"ai_msg_pub_topic_name": LaunchConfiguration("smart_topic")},
+            {"ai_msg_sub_topic_name": "/hobot_mono2d_body_detection"},
         ],
-        arguments=['--ros-args', '--log-level', 'warn']
+        arguments=["--ros-args", "--log-level", "info"],
     )
 
-    return LaunchDescription([
-        web_smart_topic_arg,
-        threshold_topic_arg,
-        mono2d_body_det_node,
-        faceid_det_node
-    ])
+    return LaunchDescription(
+        [
+            web_smart_topic_arg,
+            threshold_topic_arg,
+            mono2d_body_det_node,
+            faceid_det_node,
+        ]
+    )
