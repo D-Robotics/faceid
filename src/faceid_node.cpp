@@ -52,7 +52,7 @@ int CalTimeMsDuration(const builtin_interfaces::msg::Time& start,
 }
 
 FaceidNode::FaceidNode(const std::string& node_name,
-                               const NodeOptions& options)
+                                const NodeOptions& options)
     : DnnNode(node_name, options) {
 
   float threshold = 0.70;
@@ -70,6 +70,8 @@ FaceidNode::FaceidNode(const std::string& node_name,
                                        ai_msg_sub_topic_name_);
   this->declare_parameter<std::string>("ros_img_topic_name",
                                        ros_img_topic_name_);
+  // NEW: Model type parameter
+  this->declare_parameter<std::string>("model_type", model_type_str_);
 
   this->get_parameter<int>("feed_type", feed_type_);
   this->get_parameter<int>("dump_render_img", dump_render_img_);
@@ -84,11 +86,22 @@ FaceidNode::FaceidNode(const std::string& node_name,
                                    ai_msg_sub_topic_name_);
   this->get_parameter<std::string>("ros_img_topic_name",
                                    ros_img_topic_name_);
+  // NEW: Get model type
+  this->get_parameter<std::string>("model_type", model_type_str_);
+  model_type_ = faceid::ModelAdapter::StringToModelType(model_type_str_);
+  
+  // Get feature dimension from launch file (config-driven)
+  // This allows easy addition of new models without code changes
+  this->declare_parameter<int>("feature_dim", feature_dim_);
+  this->get_parameter<int>("feature_dim", feature_dim_);
+  
   std::stringstream ss;
   ss << "Parameter:"
      << "\n feed_type(0:local, 1:sub): " << feed_type_
      << "\n db_file: " << db_file_
      << "\n model_file_name: " << model_file_name_
+     << "\n model_type: " << model_type_str_
+     << "\n feature_dim: " << feature_dim_
      << "\n dump_render_img: " << dump_render_img_
      << "\n is_sync_mode: " << is_sync_mode_
      << "\n is_shared_mem_sub: " << is_shared_mem_sub_
@@ -137,7 +150,7 @@ FaceidNode::FaceidNode(const std::string& node_name,
   // command = "rm /mnt/testdata/*.jpg";
   // std::system(command.c_str());
 
-  feature_manage_ = std::make_shared<FeatureManage>(db_file_, 128, threshold);
+  feature_manage_ = std::make_shared<FeatureManage>(db_file_, feature_dim_, threshold, model_type_);
 
   if (0 == feed_type_) {
     FeedFromLocal();

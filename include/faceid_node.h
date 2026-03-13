@@ -30,6 +30,7 @@
 #include "dnn_node/dnn_node.h"
 #include "include/ai_msg_manage.h"
 #include "include/feature_manage.h"
+#include "include/model_adapter.h"
 
 #ifndef MONO2D_BODY_DET_NODE_H_
 #define MONO2D_BODY_DET_NODE_H_
@@ -146,6 +147,11 @@ class FaceidNode : public DnnNode {
   // 管理人体特征的数据库和解析方法
   std::shared_ptr<FeatureManage> feature_manage_ = nullptr;
   std::string db_file_ = "faceid.db";
+
+  // Model type selection
+  faceid::ModelType model_type_ = faceid::ModelType::FACEID;
+  std::string model_type_str_ = "faceid";
+  int feature_dim_ = 128;
 
   // 将订阅到的图片数据转成pym之后缓存
   // 在线程中执行推理，避免阻塞订阅IO通道，导致AI msg消息丢失

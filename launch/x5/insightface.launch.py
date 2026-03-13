@@ -32,7 +32,9 @@ def generate_launch_description():
     )
 
     threshold_topic_arg = DeclareLaunchArgument(
-        "faceid_threshold", default_value="0.70", description="websocket smart topic"
+        "insightface_threshold",
+        default_value="0.93",
+        description="insightface similarity threshold",
     )
 
     mono2d_body_det_node = IncludeLaunchDescription(
@@ -49,17 +51,18 @@ def generate_launch_description():
         }.items(),
     )
 
-    faceid_det_node = Node(
+    insightface_det_node = Node(
         package="faceid",
         executable="faceid",
         output="screen",
         parameters=[
             {"is_sync_mode": 1},
             {"feed_type": 1},
-            {"model_type": "faceid"},
-            {"model_file_name": "config/faceID.hbm"},
-            {"feature_dim": 128},
-            {"threshold": LaunchConfiguration("faceid_threshold")},
+            {"model_type": "insightface"},
+            {"model_file_name": "config/insightface.bin"},
+            {"feature_dim": 512},
+            {"db_file": "insightface.db"},  # Use separate database for insightface
+            {"threshold": LaunchConfiguration("insightface_threshold")},
             {"ai_msg_pub_topic_name": LaunchConfiguration("smart_topic")},
             {"ai_msg_sub_topic_name": "/hobot_mono2d_body_detection"},
         ],
@@ -71,6 +74,6 @@ def generate_launch_description():
             web_smart_topic_arg,
             threshold_topic_arg,
             mono2d_body_det_node,
-            faceid_det_node,
+            insightface_det_node,
         ]
     )

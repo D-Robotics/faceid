@@ -26,6 +26,8 @@
 
 #include "include/database.h"
 #include "include/item.h"
+#include "include/model_adapter.h"
+#include "include/lsh_index.h"
 
 using hobot::dnn_node::DNNTensor;
 using hobot::dnn_node::NV12PyramidInput;
@@ -37,35 +39,67 @@ class TrackIdResult {
   void Reset() {ids.clear();}
 };
 
+namespace faceid {
+  class ModelAdapter;
+  enum class ModelType;
+}
+
 class FeatureManage {
  public:
-  FeatureManage(std::string db_file, int feature_size, float threshold);
-  ~FeatureManage() {}
+   FeatureManage(std::string db_file, int feature_size, float threshold);
+   // New constructor with model type
+   FeatureManage(std::string db_file, int feature_size, float threshold, 
+                 faceid::ModelType model_type);
+   ~FeatureManage() {}
 
-  // 对于roi infer task，每个roi对应一次Parse
-  // 因此需要在Parse中实现output和roi的match处理，即当前的Parse对应的是那个roi
+  // For roi infer task, each roi corresponds to one Parse
   int32_t Parse(
       std::shared_ptr<TrackIdResult> &output,
       std::vector<std::shared_ptr<DNNTensor>> &output_tensors,
       std::shared_ptr<std::vector<hbDNNRoi>> rois,
       std::shared_ptr<NV12PyramidInput> pyramid = nullptr);
 
- private:
-  int UpdateReid(
-      std::vector<int32_t> &feature,
-      const int roi_idx,
-      std::shared_ptr<TrackIdResult> &output);
+  // Get matching statistics
+  void PrintStats() const;
 
-  int Query(const int32_t *data,
+ private:
+   // Updated to accept float features
+   int UpdateReid(
+       const std::vector<float> &feature,
+       const int roi_idx,
+       std::shared_ptr<TrackIdResult> &output);
+
+   // Three-layer matching strategy
+  int FastMatch(const std::vector<float> &feature, float &similarity);
+  
+  // Full scan matching (for small DB optimization)
+  int FullScanMatch(const std::vector<float> &feature, float &similarity);
+  
+  // Calculate similarity with database ID
+  float CalculateSimilarityWithId(int id, const std::vector<float> &feature);
+
+  int Query(const float *data,
             std::vector<Item>& target_items);
 
   int Render(const std::shared_ptr<NV12PyramidInput>& pyramid,
               hbDNNRoi &roi,
               std::string &file_name);
 
+  float CosineSimilarity(const float* data1, const float* data2);
+
   ItemDatabase db;
-  int feature_size_ = 128;
+  int feature_size_ = 512;
   float threshold_ = 0.75;
+  faceid::ModelType model_type_;
+  std::unique_ptr<faceid::ModelAdapter> model_adapter_;
+  
+   // Fast matching components
+   std::unique_ptr<faceid::FastFeatureMatcher> fast_matcher_;
+   bool use_fast_match_ = true;  // Enable by default
+   
+   // Dynamic strategy threshold: disable LSH when db_count <= this value
+   // For small databases, Cache + Full Scan is faster than LSH overhead
+   int fast_match_threshold_ = 50;
 };
 
 #endif  // FEATURE_MANAGE_H_

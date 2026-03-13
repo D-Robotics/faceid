@@ -90,11 +90,27 @@ hbm_img_msgs为自定义的图片消息格式, 用于shared mem场景下的图�
 | ------------------ | ------------------------------------- | -------------------- | ------------------- | ----------------------------------------------------------------------- |
 | feed_type           | int         | 本地/订阅推理模式。0：加载本地图片；1：订阅图片话题                                                                         | 否       | 0/1                  | 0                            |
 | is_sync_mode           | int         | 同步/异步推理模式。0：异步模式；1：同步模式                                                                         | 否       | 0/1                  | 0                            |
-| model_file_name        | std::string | 推理使用的模型文件                                                                                                  | 否       | 根据实际模型路径配置 | config/faceid.hbm          |
+| model_file_name        | std::string | 推理使用的模型文件                                                                                                  | 否       | 根据实际模型路径配置 | config/faceID.hbm          |
 | is_shared_mem_sub      | int         | 是否使用shared mem通信方式订阅图片消息。打开和关闭shared mem通信方式订阅图片的topic名分别为/hbmem_img和/image_raw。 | 0/1      | 0/1                  | 0                            |
 | ai_msg_pub_topic_name  | std::string | 发布包含人体跟随ID结果的消息topic名                                                                         | 否       | 根据实际部署环境配置 | /perception/detection/faceid    |
 | ai_msg_sub_topic_name | std::string | 订阅包含人体框检测结果的消息topic名                                                                             | 否       | 根据实际部署环境配置 | /hobot_mono2d_body_detection |
 | ros_img_topic_name | std::string | 订阅Ros图片话题消息topic名                                                                             | 否       | 根据实际部署环境配置 | /image_raw |
+
+### 模型类型详情
+
+#### FaceID模型 (model_type:=faceid)
+- 输出类型：int32
+- 特征维度：128
+- 默认模型：config/faceID.hbm
+- 默认阈值：0.70
+- 特征步长：4（特殊处理）
+
+#### InsightFace模型 (model_type:=insightface)
+- 输出类型：float
+- 特征维度：512
+- 默认模型：config/insightface.bin
+- 默认阈值：0.93
+- 预处理：uint8 [0,255], NCHW布局
 
 
 ## 运行
@@ -105,59 +121,153 @@ hbm_img_msgs为自定义的图片消息格式, 用于shared mem场景下的图�
 
 ## X5 Ubuntu系统上运行
 
-运行方式1, 使用可执行文件启动：
+### 准备工作
+
+在运行前，**必须**将配置目录复制到工作目录：
+
 ```shell
-export COLCON_CURRENT_PREFIX=./install
-source /opt/ros/humble/setup.bash
-source ./install/setup.bash
-# config中为示例使用的模型, 回灌使用的本地图片
-# 根据实际安装路径进行拷贝（docker中的安装路径为install/lib/faceid/config/, 拷贝命令为cp -r install/lib/faceid/config/ .）。
+# 从工作空间根目录（例如 /mnt/wang.liu/tros）
 cp -r install/lib/faceid/config/ .
-
-# 运行模式1：
-# 使用本地nv12格式图片进行回灌预测
-ros2 run faceid faceid --ros-args -p feed_type:=0 -p dump_render_img:=1
-
-# 运行模式2：
-# 使用shared mem通信方式(topic为/hbmem_img)进行预测, 设置ai订阅话题名(/hobot_mono2d_body_detection)为并设置log级别为warn。同时在另一个窗口发送ai msg话题(topic为/hobot_mono2d_body_detection) 变更检测框
-ros2 run faceid faceid --ros-args -p feed_type:=1 --ros-args --log-level warn -p ai_msg_sub_topic_name:="/hobot_mono2d_body_detection"
-
-# 同时使用
-ros2 launch mono2d_body_detection mono2d_body_detection.launch.py
 ```
 
-运行方式2, 使用launch文件启动：
+配置目录包含：
+- 模型文件（faceID.hbm, insightface.bin）
+- 测试图片（960x544.nv12）
+- 其他必需的配置文件
+
+### 使用FaceID模型（默认）
+
+**步骤1：复制配置文件**
+```shell
+cd tros
+cp -r install/lib/faceid/config/ .
+```
+
+**步骤2：运行节点**
 ```shell
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/humble/setup.bash
-source ./install/setup.bash
-# config中为示例使用的模型, 根据实际安装路径进行拷贝
-# 如果是板端编译（无--merge-install编译选项）, 拷贝命令为cp -r install/PKG_NAME/lib/PKG_NAME/config/ ., 其中PKG_NAME为具体的package名。
-cp -r install/lib/faceid/config/ .
+source ./install/local_setup.bash
 
-# 配置MIPI摄像头
-export CAM_TYPE=mipi
-
-# 运行模式：启动launch文件, 单独启动 faceid 节点
+# 使用launch文件
 ros2 launch faceid faceid.launch.py
 ```
 
-## X5 yocto系统上运行
+```shell
+export COLCON_CURRENT_PREFIX=./install
+source /opt/ros/humble/setup.bash
+source ./install/local_setup.bash
+cp -r install/lib/faceid/config/ .
 
+# 使用launch文件
+ros2 launch faceid faceid.launch.py
+
+# 或直接运行
+ros2 run faceid faceid --ros-args -p model_type:=faceid -p threshold:=0.70
+```
+
+### 使用InsightFace模型
+
+```shell
+export COLCON_CURRENT_PREFIX=./install
+source /opt/ros/humble/setup.bash
+source ./install/local_setup.bash
+cp -r install/lib/faceid/config/ .
+
+# 使用launch文件（推荐）
+ros2 launch faceid insightface.launch.py
+
+# 或直接运行（自定义阈值）
+ros2 run faceid faceid --ros-args \
+  -p model_type:=insightface \
+  -p model_file_name:=config/insightface.bin \
+  -p feature_dim:=512 \
+  -p threshold:=0.93
+```
+
+### 使用本地图片
+
+```shell
+# FaceID模型使用本地图片
+ros2 run faceid faceid --ros-args -p feed_type:=0 -p model_type:=faceid -p dump_render_img:=1
+
+# InsightFace模型使用本地图片
+ros2 run faceid faceid --ros-args -p feed_type:=0 -p model_type:=insightface -p dump_render_img:=1
+```
+
+### 使用共享内存配合检测
+
+```shell
+# 终端1：启动人脸检测
+ros2 launch mono2d_body_detection mono2d_body_detection.launch.py
+
+# 终端2：启动faceid使用共享内存
+ros2 run faceid faceid --ros-args \
+  -p feed_type:=1 \
+  -p model_type:=insightface \
+  -p is_shared_mem_sub:=1 \
+  -p ai_msg_sub_topic_name:="/hobot_mono2d_body_detection"
+```
+
+## X5 Yocto系统上运行
+
+### FaceID模型
 ```shell
 export ROS_LOG_DIR=/userdata/
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:./install/lib/
-
-# config中为示例使用的模型, 回灌使用的本地图片
 cp -r install/lib/faceid/config/ .
 
-# 运行模式1：
-# 使用本地nv12格式图片进行回灌预测, 输入自定义类别
+# 默认模型
 ./install/lib/faceid/faceid --ros-args -p feed_type:=0 -p dump_render_img:=1
+```
 
-# 运行模式2：
-# 使用订阅到的image msg(topic为/image)进行预测, 设置ai订阅话题名(/hobot_mono2d_body_detection)为并设置log级别为warn。同时在另一个窗口发送ai msg话题(topic为/hobot_mono2d_body_detection) 变更检测框
-./install/lib/faceid/faceid --ros-args -p feed_type:=1 -p dump_render_img:=1 --ros-args --log-level warn -p ai_msg_sub_topic_name:="/hobot_mono2d_body_detection"
+### InsightFace模型
+```shell
+export ROS_LOG_DIR=/userdata/
+export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:./install/lib/
+cp -r install/lib/faceid/config/ .
+
+# InsightFace模型
+./install/lib/faceid/faceid --ros-args \
+  -p model_type:=insightface \
+  -p model_file_name:=config/insightface.bin \
+  -p feature_dim:=512 \
+  -p threshold:=0.93
+```
+
+# 人脸匹配策略
+
+## 多特征融合
+
+系统使用三层匹配策略：
+
+1. **全数据库扫描**：与每个ID的所有特征进行比较
+2. **多特征比较**：每个ID最多可存储6个特征（1个主特征 + 5个辅助特征）
+3. **自适应阈值**：
+   - 数据库 ≤ 3：阈值 = max(配置值, 0.94)
+   - 数据库 > 3：阈值 = 配置值
+
+## 间隙验证
+
+为避免模糊匹配：
+- **间隙 ≥ 0.03**：如果相似度 ≥ 阈值，确认匹配
+- **间隙 < 0.03 但相似度 ≥ 阈值 + 0.02**：仍然匹配（同一人，不同角度）
+- **否则**：创建新ID
+
+## 匹配逻辑
+
+```
+if (max_similarity >= threshold) {
+    if (gap >= 0.03) {
+        → MATCH confirmed
+    } else if (max_similarity >= threshold + 0.02) {
+        → MATCH (small gap but high confidence)
+    } else {
+        → NEW ID (ambiguous)
+    }
+} else {
+    → NEW ID
+}
 ```
 
 # 结果分析

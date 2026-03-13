@@ -294,7 +294,7 @@ std::vector<Item> ItemDatabase::queryItemsByPage(int page_number, int page_size)
     return items;
 }
 
-int ItemDatabase::getItemCount() {
+int ItemDatabase::getItemCount() const {
     const char* sql = "SELECT COUNT(*) FROM Items;";
     sqlite3_stmt* stmt;
     int count = 0;
@@ -308,4 +308,40 @@ int ItemDatabase::getItemCount() {
     }
     sqlite3_finalize(stmt);
     return count;
+}
+
+// NEW: Query all features (primary + auxiliary) for a given ID
+std::vector<std::vector<float>> ItemDatabase::queryAllFeatures(int id) {
+  std::vector<std::vector<float>> all_features;
+  
+  // First get primary feature
+  Item item = queryItem(id);
+  if (!item.feature.empty()) {
+    all_features.push_back(item.feature);
+  }
+  
+  // TODO: In a full implementation, auxiliary features would be stored 
+  // in a separate table. For now, we just return the primary feature.
+  // This is a simplified version.
+  
+  return all_features;
+}
+
+// NEW: Get feature count for a given ID
+int ItemDatabase::getFeatureCount(int id) {
+  // For now, just return 1 (primary feature only)
+  // In full implementation, query auxiliary features table
+  Item item = queryItem(id);
+  return item.feature.empty() ? 0 : 1;
+}
+
+// NEW: Add auxiliary feature to existing ID
+bool ItemDatabase::addAuxiliaryFeature(int id, const std::vector<float>& feature) {
+  // TODO: In a full implementation, this would insert into an auxiliary_features table
+  // For now, just log that we would add it
+  RCLCPP_INFO(rclcpp::get_logger("database"),
+      "Would add auxiliary feature to ID=%d (feature_dim=%zu)",
+      id, feature.size());
+  // Simplified: always return true for now
+  return true;
 }

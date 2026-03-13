@@ -78,6 +78,8 @@ add_executable(${PROJECT_NAME}
   src/item.cpp
   src/feature_manage.cpp
   src/database.cpp
+  src/model_adapter.cpp
+  src/lsh_index.cpp
 )
 
 ament_target_dependencies(

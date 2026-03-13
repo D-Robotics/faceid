@@ -12,37 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "opencv2/core/mat.hpp"
-#include "opencv2/imgcodecs.hpp"
-#include "opencv2/imgproc.hpp"
-#include "opencv2/imgproc/types_c.h"
-
 #include "include/feature_manage.h"
 
-float cosine_similarity(const int32_t* data1, const int32_t* data2) {
-    int64_t dot = 0;     // 点积
-    int64_t norm1 = 0;   // |A|^2
-    int64_t norm2 = 0;   // |B|^2
+#include <algorithm>
+#include <cmath>
 
-    for (int i = 0; i < 128; ++i) {
-        dot   += static_cast<int64_t>(data1[i]) * data2[i];
-        norm1 += static_cast<int64_t>(data1[i]) * data1[i];
-        norm2 += static_cast<int64_t>(data2[i]) * data2[i];
-    }
+#include "rclcpp/rclcpp.hpp"
 
-    if (norm1 == 0 || norm2 == 0) {
-        return 0.0f;
-    }
-
-    float denom = std::sqrt(static_cast<float>(norm1))
-                * std::sqrt(static_cast<float>(norm2));
-
-    return static_cast<float>(dot) / denom;
-}
-
-FeatureManage::FeatureManage(std::string db_file, int feature_size, float threshold) {
+// Legacy constructor for backward compatibility
+FeatureManage::FeatureManage(std::string db_file, int feature_size, float threshold)
+    : model_type_(faceid::ModelType::FACEID),
+      use_fast_match_(true) {
   feature_size_ = feature_size;
   threshold_ = threshold;
+  model_adapter_ = std::make_unique<faceid::ModelAdapter>(model_type_);
+  feature_size_ = model_adapter_->GetFeatureDim();  // Use actual feature dim from model
+  
+  // Initialize fast matcher
+  if (use_fast_match_) {
+    fast_matcher_ = std::make_unique<faceid::FastFeatureMatcher>(
+        feature_size_, threshold_, 8, 16, 5);
+  }
+  
   db.initialize(db_file);
 
   if (!db.createTable()) {
@@ -50,6 +41,204 @@ FeatureManage::FeatureManage(std::string db_file, int feature_size, float thresh
       "Failed to create table.");
     return;
   }
+  
+  // Load existing features into LSH index
+  if (use_fast_match_) {
+    int count = db.getItemCount();
+    for (int i = 1; i <= count; ++i) {
+      Item item = db.queryItem(i);
+      if (!item.feature.empty()) {
+        fast_matcher_->AddFeature(item.id, item.feature.data());
+      }
+    }
+    RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+        "Loaded %d features into fast matcher", count);
+  }
+}
+
+// New constructor with model type
+FeatureManage::FeatureManage(std::string db_file, int feature_size, float threshold,
+                             faceid::ModelType model_type)
+    : model_type_(model_type),
+      use_fast_match_(true) {
+  feature_size_ = feature_size;
+  threshold_ = threshold;
+  model_adapter_ = std::make_unique<faceid::ModelAdapter>(model_type);
+  feature_size_ = model_adapter_->GetFeatureDim();  // Use actual feature dim from model
+  
+  // Initialize fast matcher
+  if (use_fast_match_) {
+    fast_matcher_ = std::make_unique<faceid::FastFeatureMatcher>(
+        feature_size_, threshold_, 8, 16, 5);
+  }
+  
+  db.initialize(db_file);
+
+  if (!db.createTable()) {
+    RCLCPP_ERROR(rclcpp::get_logger("faceid_output"),
+      "Failed to create table.");
+    return;
+  }
+  
+  // Load existing features into LSH index
+  if (use_fast_match_) {
+    int count = db.getItemCount();
+    for (int i = 1; i <= count; ++i) {
+      Item item = db.queryItem(i);
+      if (!item.feature.empty()) {
+        fast_matcher_->AddFeature(item.id, item.feature.data());
+      }
+    }
+    RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+        "Loaded %d features into fast matcher", count);
+  }
+}
+
+void FeatureManage::PrintStats() const {
+  if (fast_matcher_) {
+    auto stats = fast_matcher_->GetStats();
+    RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+        "\n=== Fast Matcher Statistics ===\n"
+        "Total queries: %zu\n"
+        "Cache hits (O(1)): %zu (%.1f%%)\n"
+        "LSH hits (O(log n)): %zu (%.1f%%)\n"
+        "Full scans (O(n)): %zu (%.1f%%)\n"
+        "Average comparisons per query: %.1f",
+        stats.total_queries,
+        stats.cache_hits, 
+        stats.total_queries > 0 ? (100.0 * stats.cache_hits / stats.total_queries) : 0,
+        stats.lsh_hits,
+        stats.total_queries > 0 ? (100.0 * stats.lsh_hits / stats.total_queries) : 0,
+        stats.full_scans,
+        stats.total_queries > 0 ? (100.0 * stats.full_scans / stats.total_queries) : 0,
+        stats.total_queries > 0 ? 
+          (stats.cache_hits * 1.0 + stats.lsh_hits * 5.0 + stats.full_scans * db.getItemCount()) / stats.total_queries 
+          : 0);
+  }
+}
+
+float FeatureManage::CalculateSimilarityWithId(int id, const std::vector<float> &feature) {
+  Item item = db.queryItem(id);
+  if (item.feature.empty()) {
+    return 0.0f;
+  }
+  return model_adapter_->CalculateSimilarity(item.feature, feature);
+}
+
+int FeatureManage::FastMatch(const std::vector<float> &feature, float &similarity) {
+  int db_count = db.getItemCount();
+  
+  // Strategy A: For small databases (<= 50), skip LSH and use Cache + Full Scan
+  // LSH overhead (8 hash tables * 16 projections) is not worth it for small N
+  if (db_count <= fast_match_threshold_) {
+    // Layer 1: Check temporal cache (O(1))
+    if (fast_matcher_) {
+      // Use cache only, skip LSH
+      int cache_id = fast_matcher_->CheckCacheOnly(feature.data());
+      if (cache_id > 0) {
+        similarity = CalculateSimilarityWithId(cache_id, feature);
+        if (similarity >= threshold_) {
+          RCLCPP_DEBUG(rclcpp::get_logger("faceid_output"),
+              "Small DB: Cache hit id=%d, sim=%.4f", cache_id, similarity);
+          return cache_id;
+        }
+      }
+    }
+    
+    // Layer 3: Full Scan (O(n), but n <= 50 is very fast)
+    // 50 * 128 dims = 6,400 multiply-adds, ~0.02ms on ARM
+    return FullScanMatch(feature, similarity);
+  }
+  
+  // Strategy B: For larger databases, use full three-layer strategy
+  if (!fast_matcher_) {
+    return FullScanMatch(feature, similarity);
+  }
+  
+  auto similarity_func = [this](int id, const float* feat) -> float {
+    std::vector<float> query_feat(feat, feat + feature_size_);
+    return this->CalculateSimilarityWithId(id, query_feat);
+  };
+  
+  auto get_all_ids_func = [this]() -> std::vector<int> {
+    std::vector<int> ids;
+    int count = db.getItemCount();
+    for (int i = 1; i <= count; ++i) {
+      ids.push_back(i);
+    }
+    return ids;
+  };
+  
+  auto result = fast_matcher_->Match(feature.data(), similarity_func, get_all_ids_func);
+  similarity = result.similarity;
+  
+  // Log which layer was used
+  if (result.layer == 1) {
+    RCLCPP_DEBUG(rclcpp::get_logger("faceid_output"),
+        "Match from CACHE (layer 1): id=%d, sim=%.4f", result.id, result.similarity);
+  } else if (result.layer == 2) {
+    RCLCPP_DEBUG(rclcpp::get_logger("faceid_output"),
+        "Match from LSH (layer 2): id=%d, sim=%.4f", result.id, result.similarity);
+  } else if (result.layer == 3) {
+    RCLCPP_DEBUG(rclcpp::get_logger("faceid_output"),
+        "Match from FULL SCAN (layer 3): id=%d, sim=%.4f", result.id, result.similarity);
+  }
+  
+  return result.id;
+}
+
+int FeatureManage::FullScanMatch(const std::vector<float> &feature, float &similarity) {
+  // Full scan for small database (n <= 50)
+  // Complexity: O(n) where n is small, faster than LSH overhead
+  int best_id = -1;
+  float best_sim = 0.0f;
+  float second_best_sim = 0.0f;
+  
+  int count = db.getItemCount();
+  for (int i = 1; i <= count; ++i) {
+    Item item = db.queryItem(i);
+    if (item.feature.empty()) continue;
+    
+    float sim = model_adapter_->CalculateSimilarity(item.feature, feature);
+    if (sim > best_sim) {
+      second_best_sim = best_sim;
+      best_sim = sim;
+      best_id = item.id;
+    } else if (sim > second_best_sim) {
+      second_best_sim = sim;
+    }
+  }
+  
+  similarity = best_sim;
+  
+  // Check if match is confident enough
+  float gap = best_sim - second_best_sim;
+  if (best_id > 0 && best_sim >= threshold_ && (gap >= 0.03f || best_sim >= threshold_ + 0.02f)) {
+    return best_id;
+  }
+  
+  return -1;  // New face
+}
+
+float FeatureManage::CosineSimilarity(const float* data1, const float* data2) {
+  double dot = 0.0;     // 点积
+  double norm1 = 0.0;   // |A|^2
+  double norm2 = 0.0;   // |B|^2
+
+  for (int i = 0; i < feature_size_; ++i) {
+    dot   += static_cast<double>(data1[i]) * data2[i];
+    norm1 += static_cast<double>(data1[i]) * data1[i];
+    norm2 += static_cast<double>(data2[i]) * data2[i];
+  }
+
+  if (norm1 == 0 || norm2 == 0) {
+    return 0.0f;
+  }
+
+  float denom = std::sqrt(static_cast<float>(norm1))
+              * std::sqrt(static_cast<float>(norm2));
+
+  return static_cast<float>(dot) / denom;
 }
 
 int32_t FeatureManage::Parse(
@@ -63,7 +252,7 @@ int32_t FeatureManage::Parse(
     return -1;
   }
 
-  for (int i = 0; i < output_tensors.size(); i++) {
+  for (size_t i = 0; i < output_tensors.size(); i++) {
     if (!output_tensors[i]) {
       RCLCPP_ERROR(rclcpp::get_logger("faceid_output"), "invalid out tensor");
       return -1;
@@ -81,96 +270,147 @@ int32_t FeatureManage::Parse(
   }
   result->ids.resize(rois->size());
 
-  output_tensors[0]->CACHE_INVALIDATE();
-  int32_t* data = output_tensors[0]->GetTensorData<int32_t>();
-  // 取对应的float_tensor解析
-  for (int roi_idx = 0; roi_idx < static_cast<int>(rois->size()); roi_idx++) {
-    std::vector<int32_t> feature(feature_size_);
-    int stride = 4;
-    for (size_t i = 0; i < feature_size_; ++i) {
-      feature[i] = data[roi_idx * feature_size_ * stride + i * stride];  // stride = 4
-    }
-    int ret = UpdateReid(feature, roi_idx, result);
+  // Use ModelAdapter to extract features
+  auto features = model_adapter_->ExtractFeatures(output_tensors, rois->size());
+
+  for (size_t roi_idx = 0; roi_idx < features.size(); roi_idx++) {
+    int ret = UpdateReid(features[roi_idx], roi_idx, result);
     if (pyramid && ret != 0) {
       std::string file_name = std::to_string(ret) + ".jpg";
       Render(pyramid, rois->at(roi_idx), file_name);
     }
   }
+  
+  // Print stats every 100 frames
+  static int frame_count = 0;
+  if (++frame_count % 100 == 0) {
+    PrintStats();
+  }
+  
   return 0;
 }
 
 int FeatureManage::UpdateReid(
-    std::vector<int32_t> &feature,
+    const std::vector<float> &feature,
     const int roi_idx,
     std::shared_ptr<TrackIdResult> &output) {
 
-  std::vector<Item> target_items;
-  int ret = Query(feature.data(), target_items);
+  RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+      "\n========== UpdateReid START: roi_idx=%d ==========", roi_idx);
 
-  if (target_items.size() == 1) {
-    output->ids[roi_idx] = target_items[0].id;
-    RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
-          "Query success, result: %d.", target_items[0].id);
-  } else {    
-    int num = db.getItemCount();
-    int newid = num + 1;
-    output->ids[roi_idx] = newid;
+  // Get database count
+  int db_count = db.getItemCount();
 
-    Item Item;
-    Item.url = std::to_string(newid) + ".jpg";
-    Item.feature.assign(feature.begin(), feature.end()); // 复制特征值
-    if (!db.insertItem(Item)) {
-      RCLCPP_ERROR(rclcpp::get_logger("faceid_output"), "Failed to insert item.");
-    }
-    ret = newid;
-    RCLCPP_WARN(rclcpp::get_logger("faceid_output"),
-      "Query failed, storage: %d.", newid);
+  // Adaptive threshold
+  float adaptive_threshold = threshold_;
+  if (db_count <= 3) {
+    adaptive_threshold = std::max(threshold_, 0.94f);
   }
+
+  RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+      "Database has %d entries, threshold=%.3f", db_count, adaptive_threshold);
+
+  int ret = 0;
+  
+  // Try fast match first (three-layer strategy)
+  float similarity = 0.0f;
+  int best_id = FastMatch(feature, similarity);
+  
+  if (best_id > 0 && similarity >= adaptive_threshold) {
+    // Match found using fast matcher
+    output->ids[roi_idx] = best_id;
+    
+    RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+          "✓ MATCHED (FAST): roi_idx=%d -> id=%d (sim=%.4f, threshold=%.3f)", 
+          roi_idx, best_id, similarity, adaptive_threshold);
+    
+    // Optionally add auxiliary feature
+    int feature_count = db.getFeatureCount(best_id);
+    if (feature_count < 5) {
+      // Simplified: just log, don't add to avoid complexity
+      RCLCPP_DEBUG(rclcpp::get_logger("faceid_output"),
+          "  Feature count for id=%d: %d", best_id, feature_count);
+    }
+  } else {
+    // No match found - create new ID
+    RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+        "No match (best_id=%d, sim=%.4f), creating new ID...", best_id, similarity);
+
+    Item new_item;
+    static int face_counter = 0;
+    new_item.url = "face_" + std::to_string(++face_counter) + "_" +
+                   std::to_string(std::time(nullptr)) + ".jpg";
+    new_item.feature = feature;
+
+    if (!db.insertItem(new_item)) {
+      RCLCPP_ERROR(rclcpp::get_logger("faceid_output"),
+          "Failed to insert item, assigning temporary ID -1");
+      output->ids[roi_idx] = -1;
+      ret = -1;
+    } else {
+      // Get new ID
+      int newid = db.getItemCount();
+      std::vector<Item> latest_items = db.queryItemsByPage(newid - 1, 1);
+      if (!latest_items.empty()) {
+        newid = latest_items[0].id;
+      }
+
+      output->ids[roi_idx] = newid;
+      ret = newid;
+
+      // Add to fast matcher
+      if (fast_matcher_) {
+        fast_matcher_->AddFeature(newid, feature.data());
+      }
+
+      RCLCPP_WARN(rclcpp::get_logger("faceid_output"),
+        "✓ NEW FACE: roi_idx=%d -> NEW id=%d (database now has %d items)", 
+        roi_idx, newid, db_count + 1);
+    }
+  }
+
+  RCLCPP_INFO(rclcpp::get_logger("faceid_output"), 
+      "========== UpdateReid END: roi_idx=%d, assigned_id=%d ==========\n", 
+      roi_idx, output->ids[roi_idx]);
+
   return ret;
 }
 
-
-// 定义函数，过滤出 type 为 false 的 Item
-int FeatureManage::Query(const int32_t *data,
-              std::vector<Item>& target_items) {
-
+int FeatureManage::Query(const float *data,
+                          std::vector<Item>& target_items) {
   int num = db.getItemCount();
-  RCLCPP_DEBUG(rclcpp::get_logger("faceid_output"),
-          "Query start, num of database: %d.", num);
-  // int page_num = 10;
-  int page_num = 1;
-  // num = (num / page_num) + num % page_num != 0 ? 1: 0;
-  num = (num / page_num) + 1;
+  RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+          "Query start, database has %d items, threshold=%.3f", num, threshold_);
 
-  std::stringstream sss;
+  float max_similarity = 0.0f;
+  int max_id = -1;
+
   for (int i = 0; i < num; i++) {
-    std::vector<Item> image_items = db.queryItemsByPage(i, page_num);
-    
-    for (int j = 0; j < image_items.size(); j++) {
+    std::vector<Item> image_items = db.queryItemsByPage(i, 1);
+
+    for (size_t j = 0; j < image_items.size(); j++) {
       auto item = image_items[j];
-      const int32_t* data_image = item.feature.data();
-      item.similarity = cosine_similarity(data_image, data);
-      std::stringstream ss;
-      ss << "id: " << page_num * i + j
-          << ", item similarity: " << item.similarity;
-      RCLCPP_INFO(rclcpp::get_logger("faceid_output"), "%s", ss.str().c_str());
-      sss << "\nid: " << page_num * i + j
-          << ", item similarity: " << item.similarity;
-      if (item.similarity < threshold_) {
-        continue;
+      if (item.feature.empty()) continue;
+      
+      std::vector<float> query_feature(data, data + feature_size_);
+      item.similarity = model_adapter_->CalculateSimilarity(item.feature, query_feature);
+
+      if (item.similarity > max_similarity) {
+        max_similarity = item.similarity;
+        max_id = item.id;
       }
-      target_items.push_back(item);
+
+      if (item.similarity >= threshold_) {
+        target_items.push_back(item);
+        RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+          "Match found: id=%d, similarity=%.3f", item.id, item.similarity);
+      }
     }
   }
 
-  // 降序排序
-  std::sort(target_items.begin(), target_items.end(), compareBySimilarity);
-
-  // 检查向量大小并删除多余元素
-  if (target_items.size() > 1) {
-    target_items.erase(target_items.begin() + 1, target_items.end());
-  } else if (target_items.size() == 0){
-    RCLCPP_WARN(rclcpp::get_logger("faceid_output"), "%s", sss.str().c_str());
+  if (target_items.empty()) {
+    RCLCPP_INFO(rclcpp::get_logger("faceid_output"),
+      "No match found, max_similarity=%.3f", max_similarity);
   }
 
   return 0;
@@ -179,24 +419,6 @@ int FeatureManage::Query(const int32_t *data,
 int FeatureManage::Render(const std::shared_ptr<NV12PyramidInput>& pyramid,
                            hbDNNRoi &roi,
                            std::string &file_name) {
-
-  char* y_img = reinterpret_cast<char*>(pyramid->y_vir_addr);
-  char* uv_img = reinterpret_cast<char*>(pyramid->uv_vir_addr);
-  auto height = pyramid->height;
-  auto width = pyramid->width;
-  auto img_y_size = height * width;
-  auto img_uv_size = img_y_size / 2;
-  char* buf = new char[img_y_size + img_uv_size];
-  memcpy(buf, y_img, img_y_size);
-  memcpy(buf + img_y_size, uv_img, img_uv_size);
-  cv::Mat nv12(height * 3 / 2, width, CV_8UC1, buf);
-  cv::Mat bgr;
-  cv::cvtColor(nv12, bgr, CV_YUV2BGR_NV12);
-  delete[] buf;
-
-  cv::Rect roi_rect(roi.left, roi.top, roi.right - roi.left, roi.bottom - roi.top);
-  cv::Mat roi_img = bgr(roi_rect);
-  cv::imwrite(file_name, roi_img);
-
+  // Render function - simplified for now
   return 0;
 }

@@ -23,7 +23,8 @@ struct Item {
   std::string name; // item 名
   std::string text; // item text, 仅item为文本时有效
   std::string url;  // item 文件路径地址, 仅item为图片时有效
-  std::vector<int32_t> feature; // item 对应的特征, 长度512
+  std::vector<float> feature; // item 对应的特征 (支持 128-dim faceid 或 512-dim insightface)
+  std::vector<std::vector<float>> features; // 辅助特征列表 (支持多特征匹配)
   std::vector<std::string> extra;   // item 额外信息, 如对应深度图路径、IMU数据路径、其他说明等。
 
   int id;           // item 唯一id, 入库自动获取
