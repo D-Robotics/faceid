@@ -150,7 +150,7 @@ The config directory contains:
 
 **Step 1: Copy config files**
 ```shell
-cd /mnt/wang.liu/tros  # Your workspace directory
+cd tros  
 cp -r install/lib/faceid/config/ .
 ```
 

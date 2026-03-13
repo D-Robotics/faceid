@@ -139,7 +139,7 @@ cp -r install/lib/faceid/config/ .
 
 **步骤1：复制配置文件**
 ```shell
-cd /mnt/wang.liu/tros  # 你的工作空间目录
+cd tros
 cp -r install/lib/faceid/config/ .
 ```
 

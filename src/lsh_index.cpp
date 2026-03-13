@@ -318,4 +318,8 @@ void FastFeatureMatcher::Clear() {
   ResetStats();
 }
 
+int FastFeatureMatcher::CheckCacheOnly(const float* feature) {
+  return temporal_cache_.CheckCache(feature, feature_dim_);
+}
+
 }  // namespace faceid

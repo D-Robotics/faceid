@@ -69,8 +69,11 @@ class FeatureManage {
        const int roi_idx,
        std::shared_ptr<TrackIdResult> &output);
 
-  // Three-layer matching strategy
+   // Three-layer matching strategy
   int FastMatch(const std::vector<float> &feature, float &similarity);
+  
+  // Full scan matching (for small DB optimization)
+  int FullScanMatch(const std::vector<float> &feature, float &similarity);
   
   // Calculate similarity with database ID
   float CalculateSimilarityWithId(int id, const std::vector<float> &feature);
@@ -90,9 +93,13 @@ class FeatureManage {
   faceid::ModelType model_type_;
   std::unique_ptr<faceid::ModelAdapter> model_adapter_;
   
-  // Fast matching components
-  std::unique_ptr<faceid::FastFeatureMatcher> fast_matcher_;
-  bool use_fast_match_ = true;  // Enable by default
+   // Fast matching components
+   std::unique_ptr<faceid::FastFeatureMatcher> fast_matcher_;
+   bool use_fast_match_ = true;  // Enable by default
+   
+   // Dynamic strategy threshold: disable LSH when db_count <= this value
+   // For small databases, Cache + Full Scan is faster than LSH overhead
+   int fast_match_threshold_ = 50;
 };
 
 #endif  // FEATURE_MANAGE_H_

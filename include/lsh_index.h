@@ -140,6 +140,10 @@ class FastFeatureMatcher {
   // Remove feature from index
   void RemoveFeature(int id, const float* feature);
   
+  // Check cache only (for small DB optimization)
+  // Returns: matched ID from cache or -1
+  int CheckCacheOnly(const float* feature);
+  
   // Fast match with three-layer strategy
   // Returns: matched ID or -1 for new face
   struct MatchResult {

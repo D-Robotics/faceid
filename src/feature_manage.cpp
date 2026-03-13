@@ -126,9 +126,33 @@ float FeatureManage::CalculateSimilarityWithId(int id, const std::vector<float> 
 }
 
 int FeatureManage::FastMatch(const std::vector<float> &feature, float &similarity) {
+  int db_count = db.getItemCount();
+  
+  // Strategy A: For small databases (<= 50), skip LSH and use Cache + Full Scan
+  // LSH overhead (8 hash tables * 16 projections) is not worth it for small N
+  if (db_count <= fast_match_threshold_) {
+    // Layer 1: Check temporal cache (O(1))
+    if (fast_matcher_) {
+      // Use cache only, skip LSH
+      int cache_id = fast_matcher_->CheckCacheOnly(feature.data());
+      if (cache_id > 0) {
+        similarity = CalculateSimilarityWithId(cache_id, feature);
+        if (similarity >= threshold_) {
+          RCLCPP_DEBUG(rclcpp::get_logger("faceid_output"),
+              "Small DB: Cache hit id=%d, sim=%.4f", cache_id, similarity);
+          return cache_id;
+        }
+      }
+    }
+    
+    // Layer 3: Full Scan (O(n), but n <= 50 is very fast)
+    // 50 * 128 dims = 6,400 multiply-adds, ~0.02ms on ARM
+    return FullScanMatch(feature, similarity);
+  }
+  
+  // Strategy B: For larger databases, use full three-layer strategy
   if (!fast_matcher_) {
-    // Fallback to original method
-    return -1;
+    return FullScanMatch(feature, similarity);
   }
   
   auto similarity_func = [this](int id, const float* feat) -> float {
@@ -161,6 +185,39 @@ int FeatureManage::FastMatch(const std::vector<float> &feature, float &similarit
   }
   
   return result.id;
+}
+
+int FeatureManage::FullScanMatch(const std::vector<float> &feature, float &similarity) {
+  // Full scan for small database (n <= 50)
+  // Complexity: O(n) where n is small, faster than LSH overhead
+  int best_id = -1;
+  float best_sim = 0.0f;
+  float second_best_sim = 0.0f;
+  
+  int count = db.getItemCount();
+  for (int i = 1; i <= count; ++i) {
+    Item item = db.queryItem(i);
+    if (item.feature.empty()) continue;
+    
+    float sim = model_adapter_->CalculateSimilarity(item.feature, feature);
+    if (sim > best_sim) {
+      second_best_sim = best_sim;
+      best_sim = sim;
+      best_id = item.id;
+    } else if (sim > second_best_sim) {
+      second_best_sim = sim;
+    }
+  }
+  
+  similarity = best_sim;
+  
+  // Check if match is confident enough
+  float gap = best_sim - second_best_sim;
+  if (best_id > 0 && best_sim >= threshold_ && (gap >= 0.03f || best_sim >= threshold_ + 0.02f)) {
+    return best_id;
+  }
+  
+  return -1;  // New face
 }
 
 float FeatureManage::CosineSimilarity(const float* data1, const float* data2) {

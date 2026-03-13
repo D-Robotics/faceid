@@ -61,11 +61,12 @@ def generate_launch_description():
             {"model_type": "insightface"},
             {"model_file_name": "config/insightface.bin"},
             {"feature_dim": 512},
+            {"db_file": "insightface.db"},  # Use separate database for insightface
             {"threshold": LaunchConfiguration("insightface_threshold")},
             {"ai_msg_pub_topic_name": LaunchConfiguration("smart_topic")},
             {"ai_msg_sub_topic_name": "/hobot_mono2d_body_detection"},
         ],
-        arguments=["--ros-args", "--log-level", "info"],
+        arguments=["--ros-args", "--log-level", "warn"],
     )
 
     return LaunchDescription(
