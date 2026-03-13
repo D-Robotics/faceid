@@ -90,20 +90,10 @@ FaceidNode::FaceidNode(const std::string& node_name,
   this->get_parameter<std::string>("model_type", model_type_str_);
   model_type_ = faceid::ModelAdapter::StringToModelType(model_type_str_);
   
-  // Set model-specific defaults
-  if (model_type_ == faceid::ModelType::INSIGHTFACE) {
-    feature_dim_ = 512;
-    if (model_file_name_ == "config/faceID.hbm") {
-      // Use default insightface model if not specified
-      model_file_name_ = "config/insightface.bin";
-    }
-  } else {
-    feature_dim_ = 128;
-    if (model_file_name_ == "config/faceID.hbm") {
-      // Keep default faceid model (.hbm format) - path is correct
-      // model_file_name_ stays as "config/faceID.hbm"
-    }
-  }
+  // Get feature dimension from launch file (config-driven)
+  // This allows easy addition of new models without code changes
+  this->declare_parameter<int>("feature_dim", feature_dim_);
+  this->get_parameter<int>("feature_dim", feature_dim_);
   
   std::stringstream ss;
   ss << "Parameter:"
