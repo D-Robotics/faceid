@@ -59,8 +59,11 @@ class FeatureManage {
       std::shared_ptr<std::vector<hbDNNRoi>> rois,
       std::shared_ptr<NV12PyramidInput> pyramid = nullptr);
 
-  // Get matching statistics
-  void PrintStats() const;
+   // Get matching statistics
+   void PrintStats() const;
+   
+   // Get last match operation time in milliseconds
+   float GetLastMatchTimeMs() const { return last_match_time_ms_; }
 
  private:
    // Updated to accept float features
@@ -100,6 +103,9 @@ class FeatureManage {
    // Dynamic strategy threshold: disable LSH when db_count <= this value
    // For small databases, Cache + Full Scan is faster than LSH overhead
    int fast_match_threshold_ = 50;
+   
+   // Timing statistics for last match operation (in milliseconds)
+   float last_match_time_ms_ = 0.0f;
 };
 
 #endif  // FEATURE_MANAGE_H_
