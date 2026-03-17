@@ -7,13 +7,15 @@
 # 开发环境
 
 - 编程语言: C/C++
-- 开发平台: X5
+- 开发平台: X5/S100
 - 系统版本：Ubuntu 22.04
 - 编译工具链: Linux GCC 11.4.0
 
 # 编译
 
-- X5版本：支持在 X5 Ubuntu系统上编译和在PC上使用docker交叉编译两种方式。
+- X5版本：支持在 RDK X5 Ubuntu系统上编译和在PC上使用docker交叉编译两种方式。
+
+- S100版本：支持在 RDK S100 Ubuntu系统上编译和在PC上使用docker交叉编译两种方式。
 
 同时支持通过编译选项控制编译pkg的依赖和pkg的功能。
 
@@ -41,11 +43,11 @@ hbm_img_msgs为自定义的图片消息格式, 用于shared mem场景下的图�
 - 如果关闭, 编译和运行不依赖hbm_img_msgs pkg, 支持使用原生ros和tros进行编译。
 - 对于shared mem通信方式, 当前只支持订阅nv12格式图片。
 
-## X5 Ubuntu系统上编译
+## RDK Ubuntu系统上编译
 
 1、编译环境确认
 
-- 板端已安装X5 Ubuntu系统。
+- 板端已安装RDK Ubuntu系统。
 - 当前编译终端已设置TogetherROS环境变量：`source PATH/setup.bash`。其中PATH为TogetherROS的安装路径。
 - 已安装ROS2编译工具colcon。安装的ROS不包含编译工具colcon, 需要手动安装colcon。colcon安装命令：`pip install -U colcon-common-extensions`
 - 已编译dnn node package
@@ -54,7 +56,7 @@ hbm_img_msgs为自定义的图片消息格式, 用于shared mem场景下的图�
 
 - 编译命令：`colcon build --packages-select faceid`
 
-## docker交叉编译 X5版本
+## docker交叉编译
 
 1、编译环境确认
 
@@ -69,6 +71,9 @@ hbm_img_msgs为自定义的图片消息格式, 用于shared mem场景下的图�
   ```shell
   # RDK X5
   bash robot_dev_config/build.sh -p X5 -s faceid
+
+  # RDK S100
+  bash robot_dev_config/build.sh -p S100 -s faceid
   ```
 
 - 编译选项中默认打开了shared mem通信方式。
@@ -272,7 +277,7 @@ if (max_similarity >= threshold) {
 
 # 结果分析
 
-## X5结果展示
+## 结果展示
 
 log：
 
